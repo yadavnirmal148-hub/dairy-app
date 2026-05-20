@@ -1,4 +1,4 @@
-import React, { createContext, useState } from 'react';
+import React, { createContext, useState, useCallback } from 'react';
 import { cartAPI } from '../api';
 
 export const CartContext = createContext();
@@ -7,7 +7,7 @@ export function CartProvider({ children }) {
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const fetchCart = async () => {
+  const fetchCart = useCallback(async () => {
     try {
       setLoading(true);
       const response = await cartAPI.getCart();
@@ -17,7 +17,7 @@ export function CartProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const addToCart = async (productId, quantity) => {
     try {

@@ -9,7 +9,7 @@ export default function Cart() {
 
   useEffect(() => {
     fetchCart();
-  }, []);
+  }, [fetchCart]);
 
   if (!cart) return <div className="loading">⏳ Loading cart...</div>;
   if (cart.items.length === 0) {

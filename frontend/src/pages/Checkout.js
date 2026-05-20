@@ -37,7 +37,7 @@ export default function Checkout() {
       .getStatus()
       .then((res) => setPayOptions(res.data))
       .catch(() => setPayOptions({ upi: true, cod: true, razorpay: false }));
-  }, []);
+  }, [fetchCart]);
 
   const items = cart?.items || [];
   const subtotal = items.reduce(

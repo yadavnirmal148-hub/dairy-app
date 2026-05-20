@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { productAPI, cartAPI, orderAPI, handleAPIError } from "../api";
+import { productAPI, cartAPI, handleAPIError } from "../api";
 import { AuthContext } from "../context/AuthContext";
 import BrandLogo from "../components/BrandLogo";
 import hero from "../assets/hero.png";
@@ -11,7 +11,6 @@ function Dashboard() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
-  const [orders, setOrders] = useState([]);
   const [error, setError] = useState("");
 
   // ✅ Fetch Products
@@ -29,13 +28,6 @@ function Dashboard() {
     cartAPI.getCart()
       .then(res => setCart(res.data.items || []))
       .catch(() => console.log("Cart error"));
-  }, []);
-
-  // ✅ Fetch Orders
-  useEffect(() => {
-    orderAPI.getAll()
-      .then(res => setOrders(res.data))
-      .catch(() => console.log("Orders error"));
   }, []);
 
   // ✅ Add to Cart
