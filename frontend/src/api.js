@@ -105,9 +105,23 @@ export const adminAPI = {
 // ── ERROR HANDLER ───────────────────────────────────────
 export const handleAPIError = (error) => {
   if (error.response) {
+    const data = error.response.data;
+    let message = data?.message;
+    if (!message && typeof data === 'string') {
+      message = data.includes('Not Found')
+        ? 'API URL galat hai. Netlify mein REACT_APP_API_URL ke end mein /api hona chahiye.'
+        : data.slice(0, 100);
+    }
+    if (!message && error.response.status === 401) {
+      message = 'Invalid email or password';
+    }
+    if (!message && error.response.status === 404) {
+      message =
+        'API not found. Netlify env: REACT_APP_API_URL = https://dairy-app-lahk.onrender.com/api';
+    }
     return {
       status: error.response.status,
-      message: error.response.data?.message || 'Error occurred',
+      message: message || `Server error (${error.response.status})`,
     };
   }
   if (error.request) {
