@@ -1,0 +1,24 @@
+# Render.com — Web Service (backend)
+# Dashboard: https://dashboard.render.com → New → Blueprint → connect this repo
+#
+# Before first deploy, add in Render dashboard → Environment:
+#   MONGODB_URI, JWT_SECRET, NODE_ENV=production, RAZORPAY_*, UPI_ID, SMTP_*
+
+services:
+  - type: web
+    name: gokul-fresh-api
+    runtime: node
+    rootDir: dairy-backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT is set automatically by Render. Set secrets in Dashboard:
+      # MONGODB_URI
+      # JWT_SECRET
+      # RAZORPAY_KEY_ID
+      # RAZORPAY_KEY_SECRET
+      # UPI_ID
+      # SMTP_USER
+      # SMTP_PASS

@@ -1,0 +1,71 @@
+.orders-container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: var(--color-bg-elevated);
+  padding: var(--space-xl);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+}
+
+.orders-container h2 {
+  text-align: center;
+  margin-bottom: var(--space-xl);
+  color: var(--color-primary-dark);
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+}
+
+.orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.order-card {
+  background: var(--color-bg);
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  transition: box-shadow 0.2s ease;
+}
+
+.order-card:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.order-card h3 {
+  margin-bottom: var(--space-sm);
+  color: var(--color-primary);
+  font-size: 1rem;
+}
+
+.order-card p {
+  margin: var(--space-xs) 0;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.order-card .status {
+  font-weight: 700;
+  color: var(--color-success);
+}
+
+.order-items {
+  margin-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-md);
+}
+
+.order-item {
+  display: flex;
+  justify-content: space-between;
+  margin: var(--space-xs) 0;
+  font-size: 0.875rem;
+}
+
+.order-card h4 {
+  margin-top: var(--space-md);
+  text-align: right;
+  font-weight: 800;
+  color: var(--color-primary-dark);
+}

@@ -1,0 +1,56 @@
+.login-box {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(12px);
+  padding: var(--space-2xl);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  max-width: 440px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  animation: fadeUp 0.45s ease;
+}
+
+.login-box h1 {
+  text-align: center;
+  margin-bottom: var(--space-sm);
+  color: var(--color-primary-dark);
+  font-size: 1.65rem;
+  font-weight: 800;
+}
+
+.login-box .submit-btn {
+  width: 100%;
+  padding: 0.9rem;
+  font-size: 1rem;
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  margin-top: var(--space-sm);
+}
+
+.back-link {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: var(--space-sm);
+}
+
+.back-link:hover {
+  color: var(--color-primary);
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
