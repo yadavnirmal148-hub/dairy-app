@@ -133,19 +133,18 @@ app.post('/api/auth/send-otp', async (req, res) => {
       }
     }
 
-    const isDev = process.env.NODE_ENV !== 'production';
     if (!emailSent) {
+      const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
       return res.json({
-        message: isDev
-          ? 'OTP generated (use code below)'
-          : 'OTP ready — use the code shown below (enable SMTP on server for email delivery)',
+        message: smtpConfigured
+          ? 'Email could not be sent. Use the OTP shown below or check Render SMTP settings (Gmail App Password).'
+          : 'OTP generated — add SMTP_USER and SMTP_PASS on Render for email delivery.',
         devOtp: otp,
       });
     }
 
     res.json({
-      message: 'OTP sent to your email',
-      ...(isDev ? { devOtp: otp } : {}),
+      message: 'OTP sent to your email. Check inbox and spam folder.',
     });
   } catch (err) {
     console.error('Send OTP Error:', err);

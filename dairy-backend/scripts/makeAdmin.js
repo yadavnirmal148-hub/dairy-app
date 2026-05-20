@@ -21,7 +21,9 @@ mongoose
       { new: true }
     );
     if (!user) {
-      console.error('User not found:', email);
+      console.error('❌ User not found:', email);
+      console.error('Pehle live site par is email se REGISTER karo, phir ye script dubara chalao.');
+      console.error('Render par wahi MONGODB_URI use karo jo Atlas par hai.');
       process.exit(1);
     }
     console.log('✅ Admin granted to:', user.email);

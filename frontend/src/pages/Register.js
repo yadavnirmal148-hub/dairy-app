@@ -122,7 +122,7 @@ export default function Register() {
           </p>
         )}
         {serverReady && !waking && (
-          <p className="auth-subtitle" style={{ color: '#15803d', fontSize: 0.875rem }}>
+          <p className="auth-subtitle" style={{ color: '#15803d', fontSize: '0.875rem' }}>
             Server ready — you can send OTP.
           </p>
         )}
@@ -131,7 +131,9 @@ export default function Register() {
         {message && <div className="success-message">{message}</div>}
         {devOtp && (
           <div className="dev-otp-hint">
-            <strong>Your OTP (development):</strong> {devOtp}
+            <strong>Your OTP:</strong> {devOtp}
+            <br />
+            <small>If email did not arrive, use this code above.</small>
           </div>
         )}
 
