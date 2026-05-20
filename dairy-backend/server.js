@@ -112,13 +112,21 @@ app.post('/api/auth/send-otp', async (req, res) => {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
           },
+          connectionTimeout: 8000,
+          greetingTimeout: 8000,
+          socketTimeout: 10000,
         });
-        await transporter.sendMail({
-          from: process.env.SENDER_EMAIL || process.env.SMTP_USER,
-          to: email,
-          subject: 'Gokul Fresh — Your OTP',
-          text: `Your verification code is ${otp}. Valid for 10 minutes.`,
-        });
+        await Promise.race([
+          transporter.sendMail({
+            from: process.env.SENDER_EMAIL || process.env.SMTP_USER,
+            to: email,
+            subject: 'Gokul Fresh — Your OTP',
+            text: `Your verification code is ${otp}. Valid for 10 minutes.`,
+          }),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('SMTP timeout')), 12000)
+          ),
+        ]);
         emailSent = true;
       } catch (mailErr) {
         console.error('Mail Error:', mailErr.message);
