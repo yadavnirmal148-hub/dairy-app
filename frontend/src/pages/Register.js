@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { authAPI } from '../api';
+import { authAPI, wakeServer } from '../api';
 import BrandLogo from '../components/BrandLogo';
 import '../styles/Register.css';
 
@@ -20,6 +20,27 @@ export default function Register() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [devOtp, setDevOtp] = useState('');
+  const [serverReady, setServerReady] = useState(false);
+  const [waking, setWaking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await wakeServer();
+        if (!cancelled) setServerReady(true);
+      } catch {
+        if (!cancelled) {
+          setMessage('Server is starting. Wait 1 min, then tap Send OTP again.');
+        }
+      } finally {
+        if (!cancelled) setWaking(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const set = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -38,6 +59,11 @@ export default function Register() {
     setMessage('');
     setDevOtp('');
     try {
+      if (!serverReady) {
+        setMessage('Connecting to server (free hosting: up to 2 minutes)...');
+        await wakeServer();
+        setServerReady(true);
+      }
       const email = form.email.trim().toLowerCase();
       const res = await authAPI.sendOTP(email);
       setSavedEmail(email);
@@ -46,7 +72,8 @@ export default function Register() {
       if (res.data.devOtp) setDevOtp(res.data.devOtp);
     } catch (err) {
       if (err.code === 'ECONNABORTED') {
-        setError('Server slow — wait 1 minute, open dairy-app-lahk.onrender.com/api/health, then try again.');
+        setError('Server took too long. Open dairy-app-lahk.onrender.com/api/health in a new tab, wait for ok:true, then Send OTP again.');
+        setServerReady(false);
       } else {
         setError(err.response?.data?.message || 'Failed to send OTP. Check Netlify REACT_APP_API_URL ends with /api');
       }
@@ -89,6 +116,17 @@ export default function Register() {
         <h1>Create Account</h1>
         <p className="auth-subtitle">Farm-fresh dairy delivered to your doorstep in Jaipur</p>
 
+        {waking && (
+          <p className="auth-subtitle" style={{ color: '#1f8f4a', fontWeight: 600 }}>
+            Starting server… first visit may take up to 2 minutes on free hosting.
+          </p>
+        )}
+        {serverReady && !waking && (
+          <p className="auth-subtitle" style={{ color: '#15803d', fontSize: 0.875rem }}>
+            Server ready — you can send OTP.
+          </p>
+        )}
+
         {error && <div className="error-message">{error}</div>}
         {message && <div className="success-message">{message}</div>}
         {devOtp && (
@@ -119,8 +157,8 @@ export default function Register() {
               <label>Confirm password</label>
               <input name="confirmPassword" type="password" value={form.confirmPassword} onChange={set} required />
             </div>
-            <button type="button" onClick={sendOTP} disabled={loading} className="submit-btn primary-btn">
-              {loading ? 'Sending OTP...' : 'Send OTP →'}
+            <button type="button" onClick={sendOTP} disabled={loading || waking} className="submit-btn primary-btn">
+              {loading ? 'Sending OTP...' : waking ? 'Starting server...' : 'Send OTP →'}
             </button>
           </>
         ) : (

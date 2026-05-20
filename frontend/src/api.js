@@ -2,11 +2,29 @@ import axios from 'axios';
 
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
+export const getHealthUrl = () =>
+  API_BASE.endsWith('/api') ? `${API_BASE}/health` : `${API_BASE.replace(/\/$/, '')}/api/health`;
+
+/** Wake Render free tier (cold start can take 30–90s) */
+export const wakeServer = async () => {
+  const url = getHealthUrl();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await axios.get(url, { timeout: 120000 });
+      return true;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  return false;
+};
+
 // Axios instance
 const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 90000,
+  timeout: 120000,
 });
 
 // ✅ Auto-attach JWT token
