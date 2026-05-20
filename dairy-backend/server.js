@@ -126,15 +126,12 @@ app.post('/api/auth/send-otp', async (req, res) => {
     }
 
     const isDev = process.env.NODE_ENV !== 'production';
-    if (!emailSent && isDev) {
-      return res.json({
-        message: 'OTP generated (use code below)',
-        devOtp: otp,
-      });
-    }
     if (!emailSent) {
-      return res.status(500).json({
-        message: 'Could not send email. Configure SMTP in .env or contact support.',
+      return res.json({
+        message: isDev
+          ? 'OTP generated (use code below)'
+          : 'OTP ready — use the code shown below (enable SMTP on server for email delivery)',
+        devOtp: otp,
       });
     }
 

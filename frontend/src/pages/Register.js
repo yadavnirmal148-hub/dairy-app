@@ -45,7 +45,11 @@ export default function Register() {
       setMessage(res.data.message || 'OTP sent to your email');
       if (res.data.devOtp) setDevOtp(res.data.devOtp);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send OTP');
+      if (err.code === 'ECONNABORTED') {
+        setError('Server slow — wait 1 minute, open dairy-app-lahk.onrender.com/api/health, then try again.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to send OTP. Check Netlify REACT_APP_API_URL ends with /api');
+      }
     } finally {
       setLoading(false);
     }
