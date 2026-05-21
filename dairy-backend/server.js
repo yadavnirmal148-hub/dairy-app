@@ -5,7 +5,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const paymentRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
 const app = express();
@@ -92,11 +92,19 @@ app.post('/api/auth/send-otp', async (req, res) => {
     console.log('OTP for', email, ':', otp);
 
     let emailSent = false;
-    if (process.env.RESEND_API_KEY) {
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
       try {
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({
-          from: 'Gokul Fresh <onboarding@resend.dev>',
+        const transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
+          port: parseInt(process.env.SMTP_PORT) || 587,
+          secure: false,
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        });
+        await transporter.sendMail({
+          from: `"Gokul Fresh" <${process.env.SMTP_USER}>`,
           to: email,
           subject: 'Gokul Fresh — Your OTP',
           text: `Your verification code is ${otp}. Valid for 10 minutes.`,
@@ -109,9 +117,7 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
     if (!emailSent) {
       return res.json({
-        message: process.env.RESEND_API_KEY
-          ? 'Email could not be sent. Use the OTP shown below.'
-          : 'OTP generated — add RESEND_API_KEY on Render for email delivery.',
+        message: 'Email could not be sent. Use the OTP shown below.',
         devOtp: otp,
       });
     }
