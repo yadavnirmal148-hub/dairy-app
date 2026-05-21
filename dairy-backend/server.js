@@ -6,27 +6,12 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
-const paymentRoutes = require('./routes/payments');
-const adminRoutes = require('./routes/admin');
+
 const app = express();
 
-// ================= MIDDLEWARE =================
-app.use(
-  cors({
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-  })
-);
-app.use(express.json());
-app.use('/api/payments', paymentRoutes);
-app.use('/api/admin', adminRoutes);
-
-// ================= DB CONNECT =================
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/gokul_fresh')
-  .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error('❌ MongoDB connection error:', err));
+// ================= ROUTES =================
+const paymentRoutes = require('./routes/payments');
+const adminRoutes = require('./routes/admin');
 
 // ================= MODELS =================
 const User = require('./models/User');
@@ -35,96 +20,97 @@ const Cart = require('./models/Cart');
 const Order = require('./models/Order');
 const Otp = require('./models/Otp');
 
-// ================= AUTH MIDDLEWARE =================
-const authenticateToken = (req, res, next) => {
-  const token = req.headers['authorization']?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'No token provided' });
+// ================= MIDDLEWARE =================
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 
-  jwt.verify(token, process.env.JWT_SECRET || 'secret', (err, decoded) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
-    const id = decoded.id || decoded._id;
-    if (!id) return res.status(403).json({ message: 'Invalid token' });
-    req.user = { id: String(id), isAdmin: !!decoded.isAdmin };
-    next();
+app.use(express.json());
+
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin', adminRoutes);
+
+// ================= DATABASE =================
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => {
+    console.log('✅ MongoDB Connected');
+  })
+  .catch((err) => {
+    console.log('❌ MongoDB Error:', err.message);
   });
+
+// ================= EMAIL =================
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,   // smtp.gmail.com
+  port: process.env.SMTP_PORT,   // 587
+  secure: false,                 // true for 465, false for 587
+  auth: {
+    user: process.env.SMTP_USER, // gokulfreshmilk727@gmail.com
+    pass: process.env.SMTP_PASS, // App Password
+  },
+});
+
+transporter.verify((error) => {
+  if (error) {
+    console.log('❌ SMTP Error:', error.message);
+  } else {
+    console.log('✅ Gmail SMTP Connected');
+  }
+});
+
+// ================= HELPERS =================
+const OTP_TTL_MS = 10 * 60 * 1000;
+
+const normalizeEmail = (email) => {
+  return (email || '').toLowerCase().trim();
 };
 
-async function enrichCart(cart) {
-  if (!cart) return null;
-  const doc = cart.toObject ? cart.toObject() : cart;
-  const enrichedItems = await Promise.all(
-    (doc.items || []).map(async (item) => {
-      const pid = item.productId?._id || item.productId;
-      const product = await Product.findById(pid);
-      const name = product?.name || item.productName || 'Product';
-      return {
-        ...item,
-        productName: name,
-        productId: product
-          ? { _id: product._id, name: product.name, price: product.price, image: product.image, unit: product.unit }
-          : { _id: pid, name, price: item.price },
-      };
-    })
-  );
-  return { ...doc, items: enrichedItems };
-}
-
-const OTP_TTL_MS = 10 * 60 * 1000;
-const normalizeEmail = (email) => (email || '').toLowerCase().trim();
-
+// ================= HEALTH =================
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, service: 'Gokul Fresh API' });
+  res.json({ ok: true });
 });
 
 // ================= SEND OTP =================
 app.post('/api/auth/send-otp', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
+
     if (!email) return res.status(400).json({ message: 'Email required' });
 
     const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ message: 'Email already registered. Please login.' });
+    if (existing) return res.status(400).json({ message: 'Email already registered' });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
-    await Otp.findOneAndUpdate({ email }, { otp, expiresAt }, { upsert: true, new: true });
 
-    console.log('OTP for', email, ':', otp);
+    await Otp.findOneAndUpdate(
+      { email },
+      { otp, expiresAt: new Date(Date.now() + OTP_TTL_MS) },
+      { upsert: true, new: true }
+    );
 
-    let emailSent = false;
-    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-          port: parseInt(process.env.SMTP_PORT) || 587,
-          secure: false,
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-        });
-        await transporter.sendMail({
-          from: `"Gokul Fresh" <${process.env.SMTP_USER}>`,
-          to: email,
-          subject: 'Gokul Fresh — Your OTP',
-          text: `Your verification code is ${otp}. Valid for 10 minutes.`,
-        });
-        emailSent = true;
-      } catch (mailErr) {
-        console.error('Mail Error:', mailErr.message);
-      }
-    }
+    console.log('📩 OTP:', otp);
 
-    if (!emailSent) {
-      return res.json({
-        message: 'Email could not be sent. Use the OTP shown below.',
-        devOtp: otp,
-      });
-    }
+    await transporter.sendMail({
+      from: `"Gokul Fresh" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Your OTP - Gokul Fresh',
+      html: `
+        <div style="font-family:sans-serif;padding:20px">
+          <h2>Gokul Fresh</h2>
+          <p>Your OTP is:</p>
+          <h1 style="letter-spacing:5px">${otp}</h1>
+          <p>This OTP is valid for 10 minutes.</p>
+        </div>
+      `,
+    });
 
-    res.json({ message: 'OTP sent to your email. Check inbox and spam folder.' });
+    res.json({ success: true, message: 'OTP sent successfully' });
   } catch (err) {
-    console.error('Send OTP Error:', err);
+    console.log('❌ OTP Error:', err);
     res.status(500).json({ message: 'Failed to send OTP' });
   }
 });
@@ -132,35 +118,32 @@ app.post('/api/auth/send-otp', async (req, res) => {
 // ================= REGISTER =================
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, password, phone, otp } = req.body;
-    const email = normalizeEmail(req.body.email);
+    const { name, email, password, phone, otp } = req.body;
 
-    if (!name || !email || !password || !phone || !otp)
-      return res.status(400).json({ message: 'All fields are required' });
-
-    const existing = await User.findOne({ email });
-    if (existing)
-      return res.status(400).json({ message: 'Email already registered. Please login instead.' });
-
-    const stored = await Otp.findOne({ email });
-    if (!stored || stored.otp !== String(otp).trim())
-      return res.status(400).json({ message: 'Invalid OTP. Click "Resend OTP" and try again.' });
-
-    if (new Date() > stored.expiresAt) {
-      await Otp.deleteOne({ email });
-      return res.status(400).json({ message: 'OTP expired. Please request a new one.' });
+    if (!name || !email || !password || !phone || !otp) {
+      return res.status(400).json({ message: 'All fields required' });
     }
 
-    const user = new User({ name: name.trim(), email, password, phone: phone.trim(), isEmailVerified: true });
-    await user.save();
-    await Otp.deleteOne({ email });
+    const savedOtp = await Otp.findOne({ email: normalizeEmail(email) });
+    if (!savedOtp) return res.status(400).json({ message: 'OTP not found' });
+    if (savedOtp.otp !== otp) return res.status(400).json({ message: 'Invalid OTP' });
+    if (new Date() > savedOtp.expiresAt) return res.status(400).json({ message: 'OTP expired' });
 
-    res.json({ message: 'Registered successfully! You can login now.' });
+    const user = new User({
+      name,
+      email: normalizeEmail(email),
+      password,
+      phone,
+      isEmailVerified: true,
+    });
+
+    await user.save();
+    await Otp.deleteOne({ email: normalizeEmail(email) });
+
+    res.json({ success: true, message: 'Registered successfully' });
   } catch (err) {
-    console.error('Register Error:', err);
-    if (err.code === 11000)
-      return res.status(400).json({ message: 'Email already registered. Please login.' });
-    res.status(500).json({ message: err.message || 'Registration failed' });
+    console.log('❌ Register Error:', err);
+    res.status(500).json({ message: 'Registration failed' });
   }
 });
 
@@ -168,24 +151,25 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+
     const user = await User.findOne({ email: normalizeEmail(email) });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = jwt.sign(
-      { id: user._id.toString(), isAdmin: !!user.isAdmin },
-      process.env.JWT_SECRET || 'secret',
+      { id: user._id, isAdmin: user.isAdmin || false },
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    res.json({ token, user: { _id: user._id, name: user.name, email: user.email, phone: user.phone, address: user.address, isAdmin: user.isAdmin } });
+    res.json({ token, user });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    console.log('❌ Login Error:', err);
+    res.status(500).json({ message: 'Login failed' });
   }
 });
-
 // ================= PROFILE =================
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
