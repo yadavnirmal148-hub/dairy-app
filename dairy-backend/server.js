@@ -5,7 +5,6 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const authenticateToken = require('./middleware/auth');
 
 const app = express();
@@ -19,7 +18,6 @@ const User = require('./models/User');
 const Product = require('./models/Product');
 const Cart = require('./models/Cart');
 const Order = require('./models/Order');
-const Otp = require('./models/Otp');
 
 // ================= MIDDLEWARE =================
 app.use(
@@ -44,28 +42,7 @@ mongoose
     console.log('❌ MongoDB Error:', err.message);
   });
 
-// ================= EMAIL =================
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,   // smtp.gmail.com
-  port: process.env.SMTP_PORT,   // 587
-  secure: false,                 // true for 465, false for 587
-  auth: {
-    user: process.env.SMTP_USER, // gokulfreshmilk727@gmail.com
-    pass: process.env.SMTP_PASS, // App Password
-  },
-});
-
-transporter.verify((error) => {
-  if (error) {
-    console.log('❌ SMTP Error:', error.message);
-  } else {
-    console.log('✅ Gmail SMTP Connected');
-  }
-});
-
 // ================= HELPERS =================
-const OTP_TTL_MS = 10 * 60 * 1000;
-
 const normalizeEmail = (email) => {
   return (email || '').toLowerCase().trim();
 };
@@ -75,72 +52,27 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true });
 });
 
-// ================= SEND OTP =================
-app.post('/api/auth/send-otp', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body.email);
-
-    if (!email) return res.status(400).json({ message: 'Email required' });
-
-    const existing = await User.findOne({ email });
-    if (existing) return res.status(400).json({ message: 'Email already registered' });
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    await Otp.findOneAndUpdate(
-      { email },
-      { otp, expiresAt: new Date(Date.now() + OTP_TTL_MS) },
-      { upsert: true, new: true }
-    );
-
-    console.log('📩 OTP:', otp);
-
-    await transporter.sendMail({
-      from: `"Gokul Fresh" <${process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Your OTP - Gokul Fresh',
-      html: `
-        <div style="font-family:sans-serif;padding:20px">
-          <h2>Gokul Fresh</h2>
-          <p>Your OTP is:</p>
-          <h1 style="letter-spacing:5px">${otp}</h1>
-          <p>This OTP is valid for 10 minutes.</p>
-        </div>
-      `,
-    });
-
-    res.json({ success: true, message: 'OTP sent successfully' });
-  } catch (err) {
-    console.log('❌ OTP Error:', err);
-    res.status(500).json({ message: 'Failed to send OTP' });
-  }
-});
-
-// ================= REGISTER =================
+// ================= REGISTER (No OTP) =================
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, phone, otp } = req.body;
+    const { name, email, password, phone } = req.body;
 
-    if (!name || !email || !password || !phone || !otp) {
+    if (!name || !email || !password || !phone) {
       return res.status(400).json({ message: 'All fields required' });
     }
 
-    const savedOtp = await Otp.findOne({ email: normalizeEmail(email) });
-    if (!savedOtp) return res.status(400).json({ message: 'OTP not found' });
-    if (savedOtp.otp !== otp) return res.status(400).json({ message: 'Invalid OTP' });
-    if (new Date() > savedOtp.expiresAt) return res.status(400).json({ message: 'OTP expired' });
+    const existing = await User.findOne({ email: normalizeEmail(email) });
+    if (existing) return res.status(400).json({ message: 'Email already registered' });
 
     const user = new User({
       name,
       email: normalizeEmail(email),
       password,
       phone,
-      isEmailVerified: true,
+      isEmailVerified: false,
     });
 
     await user.save();
-    await Otp.deleteOne({ email: normalizeEmail(email) });
-
     res.json({ success: true, message: 'Registered successfully' });
   } catch (err) {
     console.log('❌ Register Error:', err);
@@ -171,6 +103,7 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ message: 'Login failed' });
   }
 });
+
 // ================= PROFILE =================
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
@@ -216,6 +149,10 @@ app.get('/api/products', async (req, res) => {
 });
 
 // ================= CART =================
+const enrichCart = async (cart) => {
+  return cart;
+};
+
 app.get('/api/cart', authenticateToken, async (req, res) => {
   try {
     let cart = await Cart.findOne({ userId: req.user.id });
