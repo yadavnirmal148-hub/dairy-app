@@ -5,7 +5,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const paymentRoutes = require('./routes/payments');
 const adminRoutes = require('./routes/admin');
 const app = express();
@@ -22,6 +22,7 @@ app.use(
 app.use(express.json());
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
+
 // ================= DB CONNECT =================
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/gokul_fresh')
   .then(() => console.log('✅ MongoDB Connected'))
@@ -48,7 +49,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Enrich cart items with product details (fixes "Unnamed Product")
 async function enrichCart(cart) {
   if (!cart) return null;
   const doc = cart.toObject ? cart.toObject() : cart;
@@ -61,13 +61,7 @@ async function enrichCart(cart) {
         ...item,
         productName: name,
         productId: product
-          ? {
-              _id: product._id,
-              name: product.name,
-              price: product.price,
-              image: product.image,
-              unit: product.unit,
-            }
+          ? { _id: product._id, name: product.name, price: product.price, image: product.image, unit: product.unit }
           : { _id: pid, name, price: item.price },
       };
     })
@@ -82,9 +76,7 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'Gokul Fresh API' });
 });
 
-// ================= AUTH ROUTES =================
-
-// SEND OTP
+// ================= SEND OTP =================
 app.post('/api/auth/send-otp', async (req, res) => {
   try {
     const email = normalizeEmail(req.body.email);
@@ -95,38 +87,20 @@ app.post('/api/auth/send-otp', async (req, res) => {
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + OTP_TTL_MS);
-    await Otp.findOneAndUpdate(
-      { email },
-      { otp, expiresAt },
-      { upsert: true, new: true }
-    );
+    await Otp.findOneAndUpdate({ email }, { otp, expiresAt }, { upsert: true, new: true });
 
     console.log('OTP for', email, ':', otp);
 
     let emailSent = false;
-    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    if (process.env.RESEND_API_KEY) {
       try {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-          },
-          connectionTimeout: 8000,
-          greetingTimeout: 8000,
-          socketTimeout: 10000,
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: 'Gokul Fresh <onboarding@resend.dev>',
+          to: email,
+          subject: 'Gokul Fresh — Your OTP',
+          text: `Your verification code is ${otp}. Valid for 10 minutes.`,
         });
-        await Promise.race([
-          transporter.sendMail({
-            from: process.env.SENDER_EMAIL || process.env.SMTP_USER,
-            to: email,
-            subject: 'Gokul Fresh — Your OTP',
-            text: `Your verification code is ${otp}. Valid for 10 minutes.`,
-          }),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('SMTP timeout')), 12000)
-          ),
-        ]);
         emailSent = true;
       } catch (mailErr) {
         console.error('Mail Error:', mailErr.message);
@@ -134,74 +108,60 @@ app.post('/api/auth/send-otp', async (req, res) => {
     }
 
     if (!emailSent) {
-      const smtpConfigured = !!(process.env.SMTP_USER && process.env.SMTP_PASS);
       return res.json({
-        message: smtpConfigured
-          ? 'Email could not be sent. Use the OTP shown below or check Render SMTP settings (Gmail App Password).'
-          : 'OTP generated — add SMTP_USER and SMTP_PASS on Render for email delivery.',
+        message: process.env.RESEND_API_KEY
+          ? 'Email could not be sent. Use the OTP shown below.'
+          : 'OTP generated — add RESEND_API_KEY on Render for email delivery.',
         devOtp: otp,
       });
     }
 
-    res.json({
-      message: 'OTP sent to your email. Check inbox and spam folder.',
-    });
+    res.json({ message: 'OTP sent to your email. Check inbox and spam folder.' });
   } catch (err) {
     console.error('Send OTP Error:', err);
     res.status(500).json({ message: 'Failed to send OTP' });
   }
 });
 
-// REGISTER (with OTP verification)
+// ================= REGISTER =================
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, password, phone, otp } = req.body;
     const email = normalizeEmail(req.body.email);
 
-    if (!name || !email || !password || !phone || !otp) {
+    if (!name || !email || !password || !phone || !otp)
       return res.status(400).json({ message: 'All fields are required' });
-    }
 
     const existing = await User.findOne({ email });
-    if (existing) {
+    if (existing)
       return res.status(400).json({ message: 'Email already registered. Please login instead.' });
-    }
 
     const stored = await Otp.findOne({ email });
-    if (!stored || stored.otp !== String(otp).trim()) {
+    if (!stored || stored.otp !== String(otp).trim())
       return res.status(400).json({ message: 'Invalid OTP. Click "Resend OTP" and try again.' });
-    }
+
     if (new Date() > stored.expiresAt) {
       await Otp.deleteOne({ email });
       return res.status(400).json({ message: 'OTP expired. Please request a new one.' });
     }
 
-    const user = new User({
-      name: name.trim(),
-      email,
-      password,
-      phone: phone.trim(),
-      isEmailVerified: true,
-    });
+    const user = new User({ name: name.trim(), email, password, phone: phone.trim(), isEmailVerified: true });
     await user.save();
-
     await Otp.deleteOne({ email });
 
     res.json({ message: 'Registered successfully! You can login now.' });
   } catch (err) {
     console.error('Register Error:', err);
-    if (err.code === 11000) {
+    if (err.code === 11000)
       return res.status(400).json({ message: 'Email already registered. Please login.' });
-    }
     res.status(500).json({ message: err.message || 'Registration failed' });
   }
 });
 
-// LOGIN
+// ================= LOGIN =================
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const user = await User.findOne({ email: normalizeEmail(email) });
     if (!user) return res.status(401).json({ message: 'Invalid credentials' });
 
@@ -214,23 +174,13 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.json({
-      token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        address: user.address,
-        isAdmin: user.isAdmin,
-      },
-    });
+    res.json({ token, user: { _id: user._id, name: user.name, email: user.email, phone: user.phone, address: user.address, isAdmin: user.isAdmin } });
   } catch (err) {
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// GET PROFILE
+// ================= PROFILE =================
 app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');
@@ -241,14 +191,12 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
   }
 });
 
-// UPDATE PROFILE
 app.put('/api/auth/profile', authenticateToken, async (req, res) => {
   try {
     const { name, phone, zone, street, landmark, city, pincode } = req.body;
     const update = {};
     if (name) update.name = name.trim();
     if (phone) update.phone = phone.trim();
-
     update.address = {
       zone: zone || req.body.address?.zone || '',
       street: street || (typeof req.body.address === 'string' ? req.body.address : req.body.address?.street) || '',
@@ -257,11 +205,7 @@ app.put('/api/auth/profile', authenticateToken, async (req, res) => {
       pincode: pincode || req.body.address?.pincode || '',
     };
 
-    const user = await User.findByIdAndUpdate(req.user.id, update, {
-      new: true,
-      runValidators: true,
-    }).select('-password');
-
+    const user = await User.findByIdAndUpdate(req.user.id, update, { new: true, runValidators: true }).select('-password');
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {
@@ -279,112 +223,76 @@ app.get('/api/products', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 // ================= CART =================
 app.get('/api/cart', authenticateToken, async (req, res) => {
   try {
     let cart = await Cart.findOne({ userId: req.user.id });
-    if (!cart) {
-      cart = new Cart({ userId: req.user.id, items: [], totalPrice: 0 });
-      await cart.save();
-    }
+    if (!cart) { cart = new Cart({ userId: req.user.id, items: [], totalPrice: 0 }); await cart.save(); }
     res.json(await enrichCart(cart));
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 app.post('/api/cart/add', authenticateToken, async (req, res) => {
   try {
-    console.log("User:", req.user);
-    console.log("Body:", req.body);
-
     const { productId, quantity } = req.body;
     const product = await Product.findById(productId);
-    console.log("Product:", product);
-
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
     let cart = await Cart.findOne({ userId: req.user.id });
     if (!cart) cart = new Cart({ userId: req.user.id, items: [] });
 
     const item = cart.items.find(i => i.productId.toString() === productId);
-    if (item) {
-      item.quantity += quantity;
-      item.price = product.price;
-      item.productName = product.name;
-    } else {
-      cart.items.push({
-        productId,
-        quantity,
-        price: product.price,
-        productName: product.name,
-      });
-    }
+    if (item) { item.quantity += quantity; item.price = product.price; item.productName = product.name; }
+    else cart.items.push({ productId, quantity, price: product.price, productName: product.name });
 
     cart.totalPrice = cart.items.reduce((t, i) => t + i.price * i.quantity, 0);
     await cart.save();
-
     res.json(await enrichCart(cart));
-  } catch (err) {
-    console.error("Cart Add Error:", err);
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { console.error("Cart Add Error:", err); res.status(500).json({ message: 'Server error' }); }
 });
-// ================= CART UPDATE =================
+
 app.put('/api/cart/update', authenticateToken, async (req, res) => {
   try {
     const { productId, quantity } = req.body;
     const cart = await Cart.findOne({ userId: req.user.id });
     if (!cart) return res.status(404).json({ message: 'Cart not found' });
-
     const item = cart.items.find(i => i.productId.toString() === productId);
     if (!item) return res.status(404).json({ message: 'Item not found in cart' });
-
     item.quantity = quantity;
     cart.totalPrice = cart.items.reduce((t, i) => t + i.price * i.quantity, 0);
     await cart.save();
-
     res.json(await enrichCart(cart));
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
+
 app.delete('/api/cart/remove/:productId', authenticateToken, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.user.id });
     if (!cart) return res.status(404).json({ message: 'Cart not found' });
-
     cart.items = cart.items.filter(i => i.productId.toString() !== req.params.productId);
     cart.totalPrice = cart.items.reduce((t, i) => t + i.price * i.quantity, 0);
     await cart.save();
-
     res.json(await enrichCart(cart));
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
+
 app.delete('/api/cart/clear', authenticateToken, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.user.id });
     if (!cart) return res.status(404).json({ message: 'Cart not found' });
-
-    cart.items = [];
-    cart.totalPrice = 0;
+    cart.items = []; cart.totalPrice = 0;
     await cart.save();
-
     res.json({ message: 'Cart cleared' });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // ================= ORDERS =================
 app.post('/api/orders', authenticateToken, async (req, res) => {
   try {
     const cart = await Cart.findOne({ userId: req.user.id }).populate('items.productId');
-    if (!cart || cart.items.length === 0) {
+    if (!cart || cart.items.length === 0)
       return res.status(400).json({ message: 'Cart is empty' });
-    }
 
     const { deliveryAddress, paymentMethod } = req.body;
     const addr = deliveryAddress || {};
@@ -392,15 +300,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     const orderItems = await Promise.all(
       cart.items.map(async (item) => {
         const pid = item.productId?._id || item.productId;
-        const p = item.productId?.name
-          ? item.productId
-          : await Product.findById(pid);
-        return {
-          productId: pid,
-          productName: item.productName || p?.name || 'Product',
-          quantity: item.quantity,
-          price: item.price,
-        };
+        const p = item.productId?.name ? item.productId : await Product.findById(pid);
+        return { productId: pid, productName: item.productName || p?.name || 'Product', quantity: item.quantity, price: item.price };
       })
     );
 
@@ -408,28 +309,14 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     if (!['UPI', 'COD', 'RAZORPAY'].includes(method)) method = 'UPI';
 
     const order = new Order({
-      userId: req.user.id,
-      items: orderItems,
-      totalAmount: cart.totalPrice,
-      deliveryAddress: {
-        name: addr.name || '',
-        phone: addr.phone || '',
-        zone: addr.zone || '',
-        street: addr.street || '',
-        landmark: addr.landmark || '',
-        city: addr.city || 'Jaipur',
-        pincode: addr.pincode || '',
-      },
-      paymentMethod: method,
-      paymentStatus: 'pending',
-      orderStatus: 'pending',
+      userId: req.user.id, items: orderItems, totalAmount: cart.totalPrice,
+      deliveryAddress: { name: addr.name || '', phone: addr.phone || '', zone: addr.zone || '', street: addr.street || '', landmark: addr.landmark || '', city: addr.city || 'Jaipur', pincode: addr.pincode || '' },
+      paymentMethod: method, paymentStatus: 'pending', orderStatus: 'pending',
     });
 
     await order.save();
-    cart.items = [];
-    cart.totalPrice = 0;
+    cart.items = []; cart.totalPrice = 0;
     await cart.save();
-
     res.json(order);
   } catch (err) {
     console.error('Order Error:', err);
@@ -439,13 +326,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.user.id })
-      .populate('items.productId')
-      .sort({ createdAt: -1 });
+    const orders = await Order.find({ userId: req.user.id }).populate('items.productId').sort({ createdAt: -1 });
     res.json(orders);
-  } catch (err) {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
 // ================= SERVER =================
@@ -453,4 +336,3 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
-
