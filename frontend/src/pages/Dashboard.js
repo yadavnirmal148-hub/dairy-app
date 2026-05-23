@@ -116,7 +116,11 @@ function Dashboard() {
           {products.length > 0 ? (
             products.map((p) => (
               <div key={p._id} className="card">
-                <img src={p.image} alt={p.name} className="img" />
+                {p.image ? (
+                  <img src={p.image} alt={p.name} className="img" />
+                ) : (
+                  <div className="img product-image-placeholder">{p.name}</div>
+                )}
                 <h3>{p.name}</h3>
                 <p>{p.description}</p>
                 <div className="meta">

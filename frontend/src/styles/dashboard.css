@@ -201,6 +201,17 @@
   border-radius: var(--radius-md);
 }
 
+.dashboard .product-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-muted);
+  border: 1px solid var(--color-border);
+  color: var(--color-primary-dark);
+  font-weight: 800;
+  padding: var(--space-md);
+}
+
 .dashboard .card h3 {
   font-size: 1rem;
   margin: var(--space-sm) 0;

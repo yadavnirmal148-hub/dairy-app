@@ -12,10 +12,13 @@ export default function Register() {
     phone: '',
     password: '',
     confirmPassword: '',
+    otp: '',
   });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
   const [waking, setWaking] = useState(true);
 
   useEffect(() => {
@@ -34,6 +37,32 @@ export default function Register() {
   const set = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
     setError('');
+    if (e.target.name === 'email') {
+      setOtpSent(false);
+      setMessage('');
+    }
+  };
+
+  const sendOtp = async () => {
+    if (!form.email.trim()) return setError('Enter your email first');
+
+    setOtpLoading(true);
+    setError('');
+    setMessage('');
+    try {
+      const res = await authAPI.sendOTP(form.email.trim().toLowerCase());
+      setOtpSent(true);
+      setMessage(
+        res.data?.devOtp
+          ? `${res.data.message} OTP: ${res.data.devOtp}`
+          : res.data?.message || 'OTP sent to your email'
+      );
+    } catch (err) {
+      setOtpSent(false);
+      setError(err.response?.data?.message || 'OTP send failed. Please try again.');
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
   const register = async () => {
@@ -42,6 +71,7 @@ export default function Register() {
     if (!form.phone.trim()) return setError('Enter your phone number');
     if (form.password.length < 6) return setError('Password must be at least 6 characters');
     if (form.password !== form.confirmPassword) return setError('Passwords do not match');
+    if (!form.otp.trim()) return setError('Enter the OTP sent to your email');
 
     setLoading(true);
     setError('');
@@ -52,6 +82,7 @@ export default function Register() {
         email: form.email.trim().toLowerCase(),
         phone: form.phone.trim(),
         password: form.password,
+        otp: form.otp.trim(),
       });
       setMessage('Registration successful! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);
@@ -88,6 +119,26 @@ export default function Register() {
           <label>Email</label>
           <input name="email" type="email" value={form.email} onChange={set} required />
         </div>
+        <button
+          type="button"
+          onClick={sendOtp}
+          disabled={otpLoading || waking || !form.email.trim()}
+          className="secondary-btn"
+        >
+          {otpLoading ? 'Sending OTP...' : otpSent ? 'Resend OTP' : 'Send OTP'}
+        </button>
+        <div className="form-group">
+          <label>OTP</label>
+          <input
+            name="otp"
+            inputMode="numeric"
+            maxLength="6"
+            value={form.otp}
+            onChange={set}
+            placeholder="Enter 6-digit OTP"
+            required
+          />
+        </div>
         <div className="form-group">
           <label>Phone</label>
           <input name="phone" value={form.phone} onChange={set} required />
@@ -104,7 +155,7 @@ export default function Register() {
         <button
           type="button"
           onClick={register}
-          disabled={loading || waking}
+          disabled={loading || waking || !otpSent}
           className="submit-btn primary-btn"
         >
           {loading ? 'Creating account...' : waking ? 'Starting server...' : 'Create Account →'}

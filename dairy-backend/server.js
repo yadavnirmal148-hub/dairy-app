@@ -5,6 +5,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const authenticateToken = require('./middleware/auth');
 
 const app = express();
@@ -18,6 +19,7 @@ const User = require('./models/User');
 const Product = require('./models/Product');
 const Cart = require('./models/Cart');
 const Order = require('./models/Order');
+const Otp = require('./models/Otp');
 
 // ================= MIDDLEWARE =================
 app.use(
@@ -47,32 +49,130 @@ const normalizeEmail = (email) => {
   return (email || '').toLowerCase().trim();
 };
 
+const generateOtp = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+const getMailTransporter = () => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+};
+
+const sendOtpEmail = async (email, otp) => {
+  const transporter = getMailTransporter();
+  if (!transporter) return false;
+
+  await transporter.sendMail({
+    from: process.env.SENDER_EMAIL || process.env.SMTP_USER,
+    to: email,
+    subject: 'Your Gokul Fresh registration OTP',
+    text: `Your Gokul Fresh OTP is ${otp}. It is valid for 10 minutes.`,
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+        <h2>Gokul Fresh OTP</h2>
+        <p>Your registration OTP is:</p>
+        <p style="font-size: 28px; font-weight: 700; letter-spacing: 4px;">${otp}</p>
+        <p>This OTP is valid for 10 minutes.</p>
+      </div>
+    `,
+  });
+
+  return true;
+};
+
 // ================= HEALTH =================
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
 });
 
-// ================= REGISTER (No OTP) =================
+// ================= SEND REGISTRATION OTP =================
+app.post('/api/auth/send-otp', async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body.email);
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email required' });
+    }
+
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    const otp = generateOtp();
+    await Otp.findOneAndUpdate(
+      { email },
+      {
+        email,
+        otp,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
+
+    const sent = await sendOtpEmail(email, otp);
+    const response = {
+      success: true,
+      message: sent
+        ? 'OTP sent to your email'
+        : 'Email service is not configured. Use the OTP shown below for testing.',
+    };
+
+    if (!sent) response.devOtp = otp;
+
+    res.json(response);
+  } catch (err) {
+    console.log('❌ Send OTP Error:', err);
+    res.status(500).json({ message: 'OTP send failed' });
+  }
+});
+
+// ================= REGISTER (OTP REQUIRED) =================
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, otp } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!name || !email || !password || !phone) {
+    if (!name || !normalizedEmail || !password || !phone || !otp) {
       return res.status(400).json({ message: 'All fields required' });
     }
 
-    const existing = await User.findOne({ email: normalizeEmail(email) });
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) return res.status(400).json({ message: 'Email already registered' });
 
+    const savedOtp = await Otp.findOne({ email: normalizedEmail });
+    if (!savedOtp) {
+      return res.status(400).json({ message: 'Please send OTP first' });
+    }
+
+    if (savedOtp.expiresAt < new Date()) {
+      await Otp.deleteOne({ email: normalizedEmail });
+      return res.status(400).json({ message: 'OTP expired. Please send a new OTP' });
+    }
+
+    if (savedOtp.otp !== String(otp).trim()) {
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
     const user = new User({
-      name,
-      email: normalizeEmail(email),
+      name: name.trim(),
+      email: normalizedEmail,
       password,
-      phone,
-      isEmailVerified: false,
+      phone: phone.trim(),
+      isEmailVerified: true,
     });
 
     await user.save();
+    await Otp.deleteOne({ email: normalizedEmail });
     res.json({ success: true, message: 'Registered successfully' });
   } catch (err) {
     console.log('❌ Register Error:', err);
